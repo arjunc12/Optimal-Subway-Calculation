@@ -2,7 +2,8 @@
   "name": "Summer Research Environment",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
   "features": {
-    "ghcr.io/devcontainers/features/common-utils:1": {}
+    "ghcr.io/devcontainers/features/common-utils:1": {},
+    "ghcr.io/devcontainers/features/git-lfs:1": {}
   },
   "customizations": {
     "vscode": {
