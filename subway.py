@@ -3,7 +3,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+"""functions for:
+- function that takes all suburbs, all star points, and a main line length and outputs the optimal connection points
+- a function that can take the necessary inputs to produce a drawing"""
+
 # variables
+
+# function to get a star point given a suburb location and alpha ()
+def get_star_point(suburb_x, suburb_y, a):
+    if a == 0:
+        return 0.0
+    
+    numerator = np.abs(suburb_x) * np.sqrt(-a * ((a - 1) ** 2) * (a - 2))
+    denominator = -(a ** 2) + (2 * a)
+    f_s = suburb_y - (numerator / denominator)
+
+    # check if f_s > 0 and returns the right values
+    return np.maximum(0.0, f_s)
+
+
+
 a = 0.5
 main_length = 5
 
@@ -20,26 +39,9 @@ star_x_list = []
 star_y_list = []
 
 for idx, row in df.iterrows():
-    suburb = np.array([row["suburb_x"], row["suburb_y"]])
-    best_cost = float("inf")
-    best_star = None
-
-
-    for y in np.linspace(0, main_length, main_length * 100):
-        star = np.array([0, y]) # change 0 if downtown changes
-        length = np.linalg.norm(suburb - star)
-        time = abs(y) + length # change y to y - downtown y
-        cost = a * length + (1-a) * time
-
-        if cost < best_cost:
-            best_cost = cost
-            best_star_y = y
-
     star_x_list.append(0.0) # change if downtown changes
-    star_y_list.append(best_star_y)
-
-    print("Best star y-value:", best_star)
-    print("Minimum cost", best_cost)
+    star_y_list.append(get_star_point(row["suburb_x"], row["suburb_y"], a))
+    
     
 # save best star points back into the DataFrame
 df["star_x"] = star_x_list
@@ -157,6 +159,4 @@ for L in mainline_candidates:
 
 print(f"Best Mainline Length: {best_L:.1f}")
 print(f"Minimum Overall Network Cost: {best_overall_cost:.4f}")
-
-
 
