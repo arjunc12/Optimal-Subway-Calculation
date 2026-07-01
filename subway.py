@@ -2,8 +2,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-1. #compare get_star_point_analytical with get_star_point_brute_force in a separate script 2. journal club! (define problem, algorithm, over view of all journals, summary, similar and difference)
-
 
 # function to get a star point given a suburb location and alpha
 def get_star_point_analytical(suburb_x, suburb_y, a):
@@ -44,7 +42,7 @@ def compare(df, a, main_length):
 
     return bf_y, an_y
 
-# function to calculate first derivative of C*'(L) at given mainline length L
+# function to calculate first derivative of C*'(L) at given mainline length L 
 def compute_c_prime(L, df, a):
     c_prime_sum = a
     for _, row in df.iterrows():
@@ -54,9 +52,9 @@ def compute_c_prime(L, df, a):
             sub_x = row["suburb_x"]
             sub_y = row["suburb_y"]
             denom = np.sqrt(sub_x**2 + (L - sub_y)**2) # denominator
-            if denom > 0:
+            if denom > 0 or denom < 0: 
                 c_prime_s = (L - sub_y) / denom + (1-a) 
-            else:
+            else: # if denomenator is 0, should it just be (1-a)
                 c_prime_s = (1-a)
             c_prime_sum += c_prime_s
 
@@ -175,7 +173,90 @@ def draw_networks(df, a, best_L, main_length, graph_num = 6):
     plt.savefig("network_layout.png", dpi=300)
     plt.show()
 
+# plot graph of cost vs main_length, pointing out minimum cost, and ploting star points
+# HAVEN'T ADDED DOUBLE STAR POINTS DUE TO IT NOT BEING TRACKED
+def plot_cost_optimization(df, a):
+    # gets the star points and sorts them
+    df["star_y"] = [
+        get_star_point_analytical(x, y, a)
+        for x, y in zip(df["suburb_x"], df["suburb_y"])
+    ]
+    df = df.sort_values(by="star_y").reset_index(drop=True)
 
+    # determines the maximum main line length based on suburb
+    max_plot_length = float(df["suburb_y"].max())
+
+    # finding optimal length and lowest cost
+    best_L_calc, min_cost_calc = find_best_L_analytical(df, a)
+
+    # gets continuous points along main length and calculates costs
+    L_spectrum = np.linspace(0, max_plot_length, 1000)
+    costs = [get_optimal_connection(df, L, a)[1] for L in L_spectrum]
+
+    # intialize plot
+    plt.figure(figsize=(10, 6))
+    plt.grid(True, linestyle="--", alpha=0.6)
+
+    # plot the continuous cost curve
+    plt.plot(
+        L_spectrum,
+        costs,
+        color="#1f77b4",
+        linewidth=2.5,
+        label="Total Network Cost $C^*(L)$",
+    )
+
+    # highlight individual suburb "Star Points"
+    for idx, row in df.iterrows():
+        f_star = row["star_y"]
+        _, f_star_cost = get_optimal_connection(df, f_star, a)
+        plt.scatter(
+            f_star,
+            f_star_cost,
+            color="orange",
+            edgecolor="black",
+            s=70,
+            zorder=4,
+            label="Individual Suburb Star Point" if idx == 0 else "",
+        )
+
+    # highlight the minimum found via Calculus + Binary Search
+    plt.scatter(
+        best_L_calc,
+        min_cost_calc,
+        color="red",
+        marker="*",
+        s=250,
+        edgecolor="black",
+        zorder=5,
+        label=f"Calculus Min Cost ($L={best_L_calc:.4f}$)",
+    )
+
+    # minimum coordinate flag
+    plt.annotate(
+        f"Minimum Cost: {min_cost_calc:.4f}\nOptimal $L$: {best_L_calc:.4f}",
+        xy=(best_L_calc, min_cost_calc),
+        xytext=(best_L_calc + (max_plot_length * 0.06), min_cost_calc + 0.4),
+        arrowprops=dict(facecolor="black", shrink=0.08, width=1, headwidth=6),
+        fontsize=10,
+        weight="bold",
+        bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.3),
+    )
+
+    plt.title(
+        "Network Optimization: Mainline Length ($L$) vs. Total Cost",
+        fontsize=13,
+        weight="bold",
+    )
+    plt.xlabel("Mainline Length ($L$)", fontsize=11)
+    plt.ylabel("Total Network Cost", fontsize=11)
+    plt.xlim(-0.1, max_plot_length + 0.2)
+    plt.ylim(min(costs) - 0.5, max(costs) + 0.5)
+    plt.legend(loc="upper right", framealpha=0.9)
+
+    plt.tight_layout()
+    plt.savefig("cost_vs_length_optimization.png", dpi=300)
+    plt.show()
 
 
 
@@ -194,6 +275,8 @@ df = pd.DataFrame(
         "suburb_y": [2, 5, 3],
     }
 )
+
+plot_cost_optimization(df, a)
 
 bf_y, an_y = compare(df, a, main_length)
 print("Brute force star points:", bf_y)
@@ -236,78 +319,8 @@ print(f"\n[Brute Force] Best Mainline Length: {best_L:.6f}")
 print(f"[Brute Force] Minimum Overall Network Cost: {best_overall_cost:.6f}")
 
 
+
 """
-# check multiple points along mainline
-mainline_candidates = np.linspace(0, main_length, 6)
-
-
-""# set up the multi-plot grid structure
-fig, axes = plt.subplots(2, 3, figsize=(15, 10), sharex=True, sharey=True)
-axes = axes.flatten()  # flatten into 1D array to match 0-5 loop index ""
-
-
-# track to find the best network
-best_overall_cost = float("inf")
-best_L = 0
-best_ax_idx = 0
-
-for L in mainline_candidates:
-    current_network_cost = a * L
-    ax = axes[i]
-    ax.grid(True, linestyle="--", alpha=0.5)
-
-    # unchanging components
-    ax.scatter(0, 0, color="red", s=150, marker="*", zorder=5)  # downtown
-    ax.plot([0, 0], [0, L], color="black", linewidth=4, zorder=2)  # mainline
-    ax.plot([0, 0], [L, main_length], color="black", linewidth=2, linestyle=":", alpha=0.3)  # possible mainline
-
-    for sub_x, sub_y, optimal_star_y in zip(df["suburb_x"], df["suburb_y"], df["star_y"]):
-        suburb = np.array([sub_x, sub_y])
-
-        # Evaluate layout behavior based on current L
-        if optimal_star_y <= L: # if suburb's star is less than or equal to the mainline length, anchors (connects to mainline at star)
-            actual_connect_y = optimal_star_y
-        else: # if suburb's star is higher, it pulls down to top of mainline (connects to end of mainline)
-            actual_connect_y = L
-
-        length = np.linalg.norm(suburb - np.array([0, actual_connect_y]))
-        time = actual_connect_y + length
-        current_network_cost += a * length + (1 - a) * time
-
-        # plot suburb node and its link straight to the axis
-        ax.scatter(sub_x, sub_y, color="blue", s=80, edgecolors="black", zorder=4)
-        ax.plot([sub_x, 0], [sub_y, actual_connect_y], color="orange", linewidth=2, linestyle="--", zorder=3)
-        ax.scatter(0, actual_connect_y, color="orange", s=40, zorder=4)
-        ax.scatter(0, optimal_star_y, color="limegreen", s=100, marker="*", edgecolors="darkgreen", zorder=4, label="Ideal Star Point" if i==0 else "")
-
-    # set temporary title with the live calculated cost
-    ax.set_title(f"Network {i+1}: L = {L:.1f}\nCost: {current_network_cost:.2f}", fontsize=10)
-    ax.set_xlim(-3, 3)
-    ax.set_ylim(-0.5, main_length + 0.5)
-    if i == 0:
-        ax.legend(loc="upper left", fontsize=8)
-
-    # keep track of which network performs the best
-    if current_network_cost < best_overall_cost:
-        best_overall_cost = current_network_cost
-        best_L = L
-        best_ax_idx = i
-
-# change title to show which one is the best
-axes[best_ax_idx].set_title(
-    axes[best_ax_idx].get_title() + " (BEST)", 
-    weight="bold", 
-    color="darkgreen"
-)
-
-print(f"Best Mainline Length: {best_L:.1f}")
-print(f"Minimum Overall Network Cost: {best_overall_cost:.4f}")
-
-plt.suptitle("All 6 Network Layouts", fontsize=14, weight="bold")
-plt.tight_layout()
-plt.savefig("network_layout.png", dpi=300)
-plt.show()
-
-
+Comparing brute force to analytical
 """
 
