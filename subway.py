@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+import time
 
 # function to get a star point given a suburb location and alpha
 def get_star_point_analytical(suburb_x, suburb_y, a):
@@ -69,7 +69,7 @@ def find_best_L_analytical(df, a, epsilon=1e-6):
     for f_star in df["star_y"]:
         if 0 < f_star < max_search_bound:
             critical_points.append(f_star)
-
+    critical_points.append(max_search_bound)
     critical_points = sorted(list(set(critical_points)))
 
     # baseline scenario
@@ -83,30 +83,52 @@ def find_best_L_analytical(df, a, epsilon=1e-6):
         if cost < best_cost:
             best_cost = cost
             best_L = pt
+    
+    double_star_points = []
 
-    # binary search within each continuous interval
-    for i in range(len(critical_points)-1):
+    for i in range(len(critical_points) - 1):
         LO = critical_points[i]
         HI = critical_points[i+1]
 
-        # if signs are identical, no root exists in this interval
-        if compute_c_prime(LO, df, a) * compute_c_prime(HI, df, a) > 0:
-            continue
-        while (HI-LO) > epsilon:
-            MID = (LO + HI)/2.0
-            deriv = compute_c_prime(MID, df, a)
-            if deriv < 0:
-                LO = MID
-            else:
-                HI = MID
+        # 1. Establish baseline tracking for the current interval boundaries
+        _, cost_lo = get_optimal_connection(df, LO, a)
+        _, cost_hi = get_optimal_connection(df, HI, a)
+        
+        if cost_lo < cost_hi:
+            interval_best_L = LO
+            interval_best_cost = cost_lo
+        else:
+            interval_best_L = HI
+            interval_best_cost = cost_hi
 
-        candidate_L = (LO + HI) / 2.0
-        _, cost = get_optimal_connection(df, candidate_L, a) #C*(LO+HI/2)
-        if cost < best_cost: # (MIN)
-            best_cost = cost
-            best_L = candidate_L
+        # 2. If the derivative crosses zero, search for a deeper valley inside the interval
+        if compute_c_prime(LO, df, a) * compute_c_prime(HI, df, a) <= 0:
+            while (HI - LO) > epsilon:
+                MID = (LO + HI) / 2.0
+                deriv = compute_c_prime(MID, df, a)
+                if deriv < 0:
+                    LO = MID
+                else:
+                    HI = MID
 
-    return best_L, best_cost  
+            candidate_L = (LO + HI) / 2.0
+            _, candidate_cost = get_optimal_connection(df, candidate_L, a)
+            
+            # If the middle valley beats the boundary edges, update the interval winner
+            if candidate_cost < interval_best_cost:
+                interval_best_L = candidate_L
+                interval_best_cost = candidate_cost
+
+        # 3. Append the final calculated Double Star Point for this specific interval
+        double_star_points.append((interval_best_L, interval_best_cost))
+
+        # 4. Check if this interval's best point beats the overall Global Minimum (MIN)
+        if interval_best_cost < best_cost:
+            best_cost = interval_best_cost
+            best_L = interval_best_L
+
+    # Return the global targets as well as the array containing all interval best points
+    return best_L, best_cost, double_star_points
 
 # function that takes all suburbs, all star points, and a main line length and outputs the optimal connection points
 def get_optimal_connection(df, main_length, a): # C*(L)
@@ -130,7 +152,7 @@ def get_optimal_connection(df, main_length, a): # C*(L)
 
     return actual_connections, total_network_cost
 
-def draw_networks(df, a, best_L, main_length, graph_num = 6):
+def draw_networks(df, a, best_L, main_length, graph_num = 6, colors = ["#1f77b4", "#9467bd", "#e377c2", "#ff7f0e", "#17becf"]):
     
     plot_candidates = np.linspace(0, main_length, graph_num)
 
@@ -147,18 +169,22 @@ def draw_networks(df, a, best_L, main_length, graph_num = 6):
         ax.plot([0, 0], [0, L], color="black", linewidth=4, zorder=2, label="Mainline")  # mainline
         ax.plot([0, 0], [L, main_length], color="black", linewidth=2, linestyle=":", alpha=0.3)  # possible mainline
 
-        for (sub_x, sub_y, optimal_star_y), actual_connect_y in zip(zip(df["suburb_x"], df["suburb_y"], df["star_y"]), actual_connections):
-            # suburb node
-            ax.scatter(sub_x, sub_y, color="blue", s=80, edgecolors="black", zorder=4)
-            # link
-            ax.plot([sub_x, 0], [sub_y, actual_connect_y], color="orange", linewidth=2, linestyle="--", zorder=3,)
-            # conection point
-            ax.scatter(0, actual_connect_y, color="orange", s=40, zorder=4)
-            # ideal star points
-            ax.scatter( 0, optimal_star_y,  color="limegreen", s=100,  marker="*",  edgecolors="darkgreen", zorder=4,label="Ideal Star Point" if i == 0 else "",
-            )
+        for idx, (row, actual_connect_y) in enumerate(zip(df.iterrows(), actual_connections)):
+            _, data = row
+            sub_x, sub_y, optimal_star_y = data["suburb_x"], data["suburb_y"], data["star_y"]
+            sub_color = colors[idx % len(colors)]
 
-         # Tag visual winner based on structural match parameters
+            # suburb node (uses matching unique color)
+            ax.scatter(sub_x, sub_y, color=sub_color, s=90, edgecolors="black", zorder=4)
+            # link line to the axis
+            ax.plot([sub_x, 0], [sub_y, actual_connect_y], color="orange", linewidth=2, linestyle="--", zorder=3)
+            # connection drop-point along the mainline
+            ax.scatter(0, actual_connect_y, color="orange", s=40, zorder=4)
+            # ideal Star Point (Now matches the same unique color as its suburb node!)
+            ax.scatter(0, optimal_star_y, color=sub_color, s=120, marker="*", edgecolors="black", zorder=4,
+                       label="Ideal Star Point" if (i == 0 and idx == 0) else "")
+            
+         # tag visual winner based on structural match parameters
         is_optimal = " (OPTIMAL CHOICE)" if np.isclose(L, best_L, atol=0.51) else ""
 
         ax.set_title(f"Network {i+1}: L = {L:.1f}{is_optimal}\nCost: {display_cost:.2f}", fontsize=10, weight="bold" if is_optimal else "normal", color="darkgreen" if is_optimal else "black",)
@@ -187,7 +213,7 @@ def plot_cost_optimization(df, a):
     max_plot_length = float(df["suburb_y"].max())
 
     # finding optimal length and lowest cost
-    best_L_calc, min_cost_calc = find_best_L_analytical(df, a)
+    best_L_calc, min_cost_calc, double_star_points = find_best_L_analytical(df, a)
 
     # gets continuous points along main length and calculates costs
     L_spectrum = np.linspace(0, max_plot_length, 1000)
@@ -218,6 +244,18 @@ def plot_cost_optimization(df, a):
             s=70,
             zorder=4,
             label="Individual Suburb Star Point" if idx == 0 else "",
+        )
+
+    for i, (interval_L, interval_cost) in enumerate(double_star_points):
+        plt.scatter(
+            interval_L,
+            interval_cost,
+            color="gold",
+            marker="*",
+            s=220,
+            edgecolor="darkorange",
+            zorder=4,
+            label="Interval Best (Double Star)" if i == 0 else "",
         )
 
     # highlight the minimum found via Calculus + Binary Search
@@ -258,7 +296,58 @@ def plot_cost_optimization(df, a):
     plt.savefig("cost_vs_length_optimization.png", dpi=300)
     plt.show()
 
+def run_timing_comparison(df, a, main_length):
 
+    # individual Suburb Star Point Calculation Timing
+    start_bf = time.perf_counter()
+    _ = [
+        get_star_point_brute_force(x, y, a, main_length)
+        for x, y in zip(df["suburb_x"], df["suburb_y"])
+    ]
+    end_bf = time.perf_counter()
+    bf_star_time = end_bf - start_bf
+
+    start_an = time.perf_counter()
+    _ = [
+        get_star_point_analytical(x, y, a)
+        for x, y in zip(df["suburb_x"], df["suburb_y"])
+    ]
+    end_an = time.perf_counter()
+    an_star_time = end_an - start_an
+
+    print(f"Brute Force Star Points Time: {bf_star_time:.6f} seconds")
+    print(f"Analytical Star Points Time:  {an_star_time:.6f} seconds")
+    if an_star_time > 0:
+        print(
+            f"    Analytical math is {bf_star_time / an_star_time:.1f}x faster for points."
+        )
+
+    print()
+
+    # global Mainline Length (L) Optimization Timing
+    start_bf_L = time.perf_counter()
+    mainline_candidates = np.linspace(0, main_length, main_length * 100)
+    best_overall_cost = float("inf")
+    for L in mainline_candidates:
+        _, total_network_cost = get_optimal_connection(df, L, a)
+        if total_network_cost < best_overall_cost:
+            best_overall_cost = total_network_cost
+    end_bf_L = time.perf_counter()
+    bf_L_time = end_bf_L - start_bf_L
+
+    start_calc_L = time.perf_counter()
+    _, _, _ = find_best_L_analytical(df, a)
+    end_calc_L = time.perf_counter()
+    calc_L_time = end_calc_L - start_calc_L
+
+    print(f"Brute Force Global Search Time:  {bf_L_time:.6f} seconds")
+    print(f"Calculus / Binary Search Time:   {calc_L_time:.6f} seconds")
+    if calc_L_time > 0:
+        print(
+            f"    Calculus Search is {bf_L_time / calc_L_time:.1f}x faster for global optimization."
+        )
+
+    print()
 
 
 
@@ -277,10 +366,11 @@ df = pd.DataFrame(
 )
 
 plot_cost_optimization(df, a)
-
+run_timing_comparison(df, a, main_length)
 bf_y, an_y = compare(df, a, main_length)
 print("Brute force star points:", bf_y)
 print("Analytical star points:", an_y)
+print()
 
 star_y_list = [get_star_point_analytical(x, y, a) for x, y in zip(df["suburb_x"], df["suburb_y"])]
 
@@ -292,7 +382,7 @@ df["star_y"] = star_y_list
 df = df.sort_values(by = "star_y").reset_index(drop=True)
 print(df)
 
-best_L, min_cost = find_best_L_analytical(df, a)
+best_L, min_cost, double_star_points = find_best_L_analytical(df, a)
 print(f"\n[Calculus Search] Best Mainline Length: {best_L:.6f}")
 print(f"[Calculus Search] Minimum Overall Network Cost: {min_cost:.6f}")
 
@@ -318,9 +408,4 @@ for L in mainline_candidates:
 print(f"\n[Brute Force] Best Mainline Length: {best_L:.6f}")
 print(f"[Brute Force] Minimum Overall Network Cost: {best_overall_cost:.6f}")
 
-
-
-"""
-Comparing brute force to analytical
-"""
-
+print(double_star_points)
