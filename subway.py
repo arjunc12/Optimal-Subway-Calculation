@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
 import time
@@ -296,60 +297,409 @@ def plot_cost_optimization(df, a):
     plt.savefig("cost_vs_length_optimization.png", dpi=300)
     plt.show()
 
-def run_timing_comparison(df, a, main_length):
+def run_timing_comparison(df_base, a, main_length):
 
-    # individual Suburb Star Point Calculation Timing
+    # brute force star points
     start_bf = time.perf_counter()
-    _ = [
+    bf_stars = [
         get_star_point_brute_force(x, y, a, main_length)
-        for x, y in zip(df["suburb_x"], df["suburb_y"])
+        for x, y in zip(df_base["suburb_x"], df_base["suburb_y"])
     ]
+    df_bf = df_base.copy()
+    df_bf["star_y"] = bf_stars
+
+    # brute force mainline search
+    mainline_candidates = np.linspace(0, main_length, 100) # SHOULD IT BE SET STEPS
+    best_cost_bf = float("inf")
+    best_L_bf = 0.0
+    for L in mainline_candidates:
+        _, total_network_cost = get_optimal_connection(df_bf, L, a)
+        if total_network_cost < best_cost_bf:
+            best_cost_bf = total_network_cost
+            best_L_bf = L
+
     end_bf = time.perf_counter()
-    bf_star_time = end_bf - start_bf
+    total_bf_time = end_bf - start_bf
+
 
     start_an = time.perf_counter()
-    _ = [
+    an_stars = [
         get_star_point_analytical(x, y, a)
-        for x, y in zip(df["suburb_x"], df["suburb_y"])
+        for x, y in zip(df_base["suburb_x"], df_base["suburb_y"])
     ]
+    df_an = df_base.copy()
+    df_an["star_y"] = an_stars
+    df_an = df_an.sort_values(by="star_y").reset_index(drop=True)
+    best_L_an, _, _ = find_best_L_analytical(df_an, a)
     end_an = time.perf_counter()
-    an_star_time = end_an - start_an
+    total_an_time = end_an - start_an
 
-    print(f"Brute Force Star Points Time: {bf_star_time:.6f} seconds")
-    print(f"Analytical Star Points Time:  {an_star_time:.6f} seconds")
-    if an_star_time > 0:
-        print(
-            f"    Analytical math is {bf_star_time / an_star_time:.1f}x faster for points."
+    return {
+        "total_bf_time": total_bf_time,
+        "total_an_time": total_an_time,
+        "best_L_bf": best_L_bf,
+        "best_L_an": best_L_an,
+        "df_an": df_an,
+        "df_bf": df_bf,
+    }
+
+
+    
+
+def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, main_length = 1000): # SHOULD MAIN_LENGTH BE SET OR JUST BE THE LARGEST STAR POINT
+    suburb_counts = []
+    analytical_times = []
+    brute_force_times = []
+
+    csv_records = []
+
+    for num_suburbs in range(min_suburbs, max_suburbs + 1, step): # NUMBER OF SUBURBS ISN"T RANDOM
+        # generate random coordinates
+        np.random.seed(42 + num_suburbs)
+        x_coords = np.random.uniform(-100, 100, num_suburbs)
+        y_coords = np.random.uniform(0, 1000, num_suburbs)
+
+        df_base = pd.DataFrame(
+        {
+            "suburb_x": x_coords,
+            "suburb_y": y_coords,
+        }
         )
 
-    print()
+        # gets the run time for a subway with num_suburbs amount of suburbs
+        metrics = run_timing_comparison(df_base, a, main_length)
 
-    # global Mainline Length (L) Optimization Timing
-    start_bf_L = time.perf_counter()
-    mainline_candidates = np.linspace(0, main_length, main_length * 100)
-    best_overall_cost = float("inf")
-    for L in mainline_candidates:
-        _, total_network_cost = get_optimal_connection(df, L, a)
-        if total_network_cost < best_overall_cost:
-            best_overall_cost = total_network_cost
-    end_bf_L = time.perf_counter()
-    bf_L_time = end_bf_L - start_bf_L
+        suburb_counts.append(num_suburbs)
+        brute_force_times.append(metrics["total_bf_time"])
+        analytical_times.append(metrics["total_an_time"])
+        df_an = metrics["df_an"]
+        df_bf = metrics["df_bf"]
 
-    start_calc_L = time.perf_counter()
-    _, _, _ = find_best_L_analytical(df, a)
-    end_calc_L = time.perf_counter()
-    calc_L_time = end_calc_L - start_calc_L
+        for idx in range(num_suburbs):
+            csv_records.append(
+                {
+                    "total_suburbs": num_suburbs,
+                    "suburb_index": idx,
+                    "suburb_x": df_base.loc[idx, "suburb_x"],
+                    "suburb_y": df_base.loc[idx, "suburb_y"],
+                    "analytical_star_y": df_an.loc[idx, "star_y"]
+                    if idx in df_an.index
+                    else None,
+                    "brute_force_star_y": df_bf.loc[idx, "star_y"],
+                    "total_bf_run_time_sec": metrics["total_bf_time"],
+                    "total_an_run_time_sec": metrics["total_an_time"],
+                    "optimal_L_found_analytical": metrics["best_L_an"],
+                    "optimal_L_found_brute_force": metrics["best_L_bf"],
+                }
+            )
 
-    print(f"Brute Force Global Search Time:  {bf_L_time:.6f} seconds")
-    print(f"Calculus / Binary Search Time:   {calc_L_time:.6f} seconds")
-    if calc_L_time > 0:
-        print(
-            f"    Calculus Search is {bf_L_time / calc_L_time:.1f}x faster for global optimization."
+    # csv
+    export_df = pd.DataFrame(csv_records)
+    csv_filename = "network_performance.csv"
+    export_df.to_csv(csv_filename, index = False)
+
+    # analytical vs suburbs amount
+    plt.figure(figsize=(10, 6))
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.plot(
+        suburb_counts,
+        analytical_times,
+        color="#1f77b4",
+        marker="s",
+        linewidth=2,
+        label="Pure Analytical Path",
+    )
+    plt.title(
+        "Analytical Method: Processing Time vs. Number of Suburbs",
+        fontsize=13,
+        weight="bold",
+    )
+    plt.xlabel("Number of Suburbs ($N$)", fontsize=11)
+    plt.ylabel("Execution Time (Seconds)", fontsize=11)
+    plt.legend(loc="upper left")
+    plt.tight_layout()
+    plt.savefig("analytical_vs_suburbs.png", dpi=300)
+    plt.close()  # closes the figure container to start fresh
+
+    # analytical vs suburbs amount
+    plt.figure(figsize=(10, 6))
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.plot(
+        suburb_counts,
+        analytical_times,
+        color="#1f77b4",
+        marker="s",
+        linewidth=2,
+        label="Pure Analytical Path",
+    )
+    plt.title(
+        "Analytical Method: Processing Time vs. Number of Suburbs",
+        fontsize=13,
+        weight="bold",
+    )
+    plt.xlabel("Number of Suburbs ($N$)", fontsize=11)
+    plt.ylabel("Execution Time (Seconds)", fontsize=11)
+    plt.legend(loc="upper left")
+    plt.tight_layout()
+    plt.savefig("analytical_vs_suburbs.png", dpi=300)
+    plt.close()  # closes the figure container to start fresh
+
+    # analytical vs brute force
+    fig, ax = plt.subplots(figsize=(8, 8))  # Use square subplots for equal scale mapping
+    ax.grid(True, linestyle="--", alpha=0.6)
+
+    # 1. FORCE EQUAL ASPECT RATIO (1 second X = 1 second Y)
+    ax.set_aspect("equal", adjustable="box")
+
+    # 2. MATCH AXIS STEP LIMITS DYNAMICALLY
+    global_min = min(min(brute_force_times), min(analytical_times)) * 0.9
+    global_max = max(max(brute_force_times), max(analytical_times)) * 1.1
+    ax.set_xlim(global_min, global_max)
+    ax.set_ylim(global_min, global_max)
+
+    # 3. ADD A 1:1 PERFORMANCE BASKET REFERENCE LINE
+    ax.plot(
+        [global_min, global_max],
+        [global_min, global_max],
+        color="gray",
+        linestyle="--",
+        alpha=0.7,
+        label="1:1 Equal Speed Line",
+    )
+
+    # 4. PLOT TIMING CORRELATIONS
+    ax.scatter(
+        brute_force_times,
+        analytical_times,
+        color="#2ca02c",
+        edgecolor="black",
+        s=80,
+        zorder=5,
+        label="Measured Batch Runtimes",
+    )
+    ax.plot(
+        brute_force_times,
+        analytical_times,
+        color="#2ca02c",
+        linestyle=":",
+        alpha=0.5,
+    )
+
+    for (
+        count,
+        x_val,
+        y_val,
+    ) in zip(suburb_counts, brute_force_times, analytical_times):
+        ax.annotate(
+            f" N={count}",
+            xy=(x_val, y_val),
+            xytext=(5, -2),
+            textcoords="offset points",
+            fontsize=9,
         )
 
-    print()
+    ax.set_title(
+        "Algorithm Time Correlation: Analytical vs. Brute Force",
+        fontsize=13,
+        weight="bold",
+    )
+    ax.set_xlabel("Brute Force Execution Time (Seconds)", fontsize=11)
+    ax.set_ylabel("Analytical Execution Time (Seconds)", fontsize=11)
+    ax.legend(loc="upper left")
 
+    plt.tight_layout()
+    plt.savefig("analytical_vs_brute_force_time.png", dpi=300)
+    plt.close(fig)
 
+"""
+    # analytical vs brute force
+    plt.figure(figsize=(10, 6))
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.scatter(
+        brute_force_times,
+        analytical_times,
+        color="#2ca02c",
+        edgecolor="black",
+        s=80,
+        zorder=5,
+        label="Measured Batch Runtimes"
+    )
+    plt.plot(
+        brute_force_times,
+        analytical_times,
+        color="#2ca02c",
+        linestyle=":",
+        alpha=0.5
+    )
+
+    for count, x_val, y_val in zip(suburb_counts, brute_force_times, analytical_times):
+        plt.annotate(
+            f" N={count}", 
+            xy=(x_val, y_val), 
+            xytext=(5, -2), 
+            textcoords="offset points", 
+            fontsize=9
+        )
+
+    plt.title(
+        "Algorithm Time Correlation: Analytical vs. Brute Force",
+        fontsize=13,
+        weight="bold",
+    )
+    plt.xlabel("Brute Force Execution Time (Seconds)", fontsize=11)
+    plt.ylabel("Analytical Execution Time (Seconds)", fontsize=11)
+    plt.legend(loc="upper left")
+    
+    plt.tight_layout()
+    plt.savefig("analytical_vs_brute_force_time.png", dpi=300)
+    plt.close()
+    """
+
+def generate_network_tradeoff(df_base, alpha_spectrum = [0.1, 0.3, 0.5, 0.7, 0.9]):
+    wiring_costs = []
+    conduction_delays = []
+
+    networks = []
+
+    for a in alpha_spectrum:
+        df = df_base.copy()
+        df["star_y"] = [get_star_point_analytical(x, y, a) for x, y in zip(df["suburb_x"], df["suburb_y"])]
+        df = df.sort_values(by="star_y").reset_index(drop=True)
+        best_L, best_cost, _ = find_best_L_analytical(df, a)
+        actual_connections, _ = get_optimal_connection(df, best_L, a)
+
+        total_wire = best_L
+        total_delay = 0.0
+
+        for sub_x, sub_y, actual_connect_y in zip(df["suburb_x"], df["suburb_y"], actual_connections):
+            suburb = np.array([sub_x, sub_y])
+            link_length = np.linalg.norm(suburb - np.array([0, actual_connect_y]))
+            total_wire += link_length
+            total_delay += (actual_connect_y + link_length)
+
+        wiring_costs.append(total_wire)
+        conduction_delays.append(total_delay)
+
+        networks.append(
+            {
+                "alpha": a,
+                "best_L": best_L,
+                "df": df,
+                "connections": actual_connections,
+                "wire": total_wire,
+                "delay": total_delay,
+                "total_cost": best_cost,
+            }
+        )
+    
+    fig_main, ax_main = plt.subplots(figsize=(10, 7))
+    ax_main.grid(True, linestyle="--", alpha=0.5)
+
+    # Plot Pareto line
+    ax_main.plot(
+        wiring_costs,
+        conduction_delays,
+        color="purple",
+        linestyle="-",
+        linewidth=2.5,
+        alpha=0.7,
+        zorder=1,
+    )
+
+    # scatter points with custom color mapping matching alpha values
+    ax_main.scatter(
+        wiring_costs,
+        conduction_delays,
+        color="#1f77b4",
+        s=120,
+        edgecolor="black",
+        zorder=3,
+        label="Optimized Networks",
+    )
+    
+    # Annotate points on the curve with simple alpha tags
+    for a, x, y in zip(alpha_spectrum, wiring_costs, conduction_delays):
+        ax_main.annotate(
+            f" a={a:.1f}",
+            xy=(x, y),
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=10,
+            weight="bold",
+        )
+
+    ax_main.set_title(
+        "Pareto Frontier: Network Cost Component Trade-offs",
+        fontsize=14,
+        weight="bold",
+    )
+    ax_main.set_xlabel(
+        "Total Wiring Infrastructure Cost (Network Physical Length)",
+        fontsize=11,
+    )
+    ax_main.set_ylabel(
+        "Total Conduction Delay (Cumulative Travel Path Time)", fontsize=11
+    )
+
+    plt.savefig("pareto_frontier.png", dpi=300, bbox_inches="tight")
+    plt.show()
+    plt.close(fig_main)
+
+    colors = ["#1f77b4", "#9467bd", "#e377c2", "#ff7f0e", "#17becf"]
+
+    for idx, net in enumerate(networks):
+        fig_sub, ax_sub = plt.subplots(figsize = (6, 5))
+
+        ax_sub.plot([0, 0], [0, net["best_L"]], color="black", linewidth=3)
+        ax_sub.scatter(0, 0, color="red", s=40, marker="*")  # downtown origin
+
+        for s_idx, (sub_x, sub_y, actual_connect_y) in enumerate(
+            zip(net["df"]["suburb_x"], net["df"]["suburb_y"], net["connections"])
+        ):
+            ax_sub.scatter(
+                sub_x,
+                sub_y,
+                color=colors[s_idx % len(colors)],
+                s=25,
+                edgecolors="black",
+                zorder=4,
+            )
+            ax_sub.plot(
+                [sub_x, 0],
+                [sub_y, actual_connect_y],
+                color="orange",
+                linewidth=1.5,
+                linestyle="--",
+                zorder=3,
+            )
+
+        # Style side panel sub-windows
+        ax_sub.set_xlim(-3, 3)
+        ax_sub.set_ylim(-0.5, float(df_base["suburb_y"].max()) + 0.5)
+        ax_sub.axis("off")  # removes borders for a clean presentation look
+
+        # add side label layout text next to every network panel
+        info_string = (
+        f"Alpha ($\\alpha$) = {net['alpha']:.1f}\n"
+        f"Wire Length: {net['wire']:.1f}\n"
+        f"Travel Delay: {net['delay']:.1f}\n"
+        f"Total Cost: {net['total_cost']:.1f}"
+        )
+        # places text to the left side of each mini panel window
+        ax_sub.text(
+            1.75,
+            float(df_base["suburb_y"].max()) / 2,
+            info_string,
+            fontsize=9,
+            verticalalignment="center",
+            horizontalalignment="left",
+            bbox=dict(facecolor="white", alpha=0.5, boxstyle="round,pad=0.3"),
+        )
+
+        file_name = f"network_alpha_{net['alpha']:.1f}.png"
+        plt.savefig(file_name, dpi=300, bbox_inches="tight")
+        plt.show()
+        plt.close(fig_sub)
 
 
 
@@ -364,9 +714,11 @@ df = pd.DataFrame(
         "suburb_y": [2, 5, 3],
     }
 )
-
+generate_network_tradeoff(df)
 plot_cost_optimization(df, a)
-run_timing_comparison(df, a, main_length)
+metrics = run_timing_comparison(df, a, main_length)
+print("Time for brute force method:", metrics["total_bf_time"])
+print("Time for analytical method:", metrics["total_an_time"])
 bf_y, an_y = compare(df, a, main_length)
 print("Brute force star points:", bf_y)
 print("Analytical star points:", an_y)
@@ -407,5 +759,7 @@ for L in mainline_candidates:
 
 print(f"\n[Brute Force] Best Mainline Length: {best_L:.6f}")
 print(f"[Brute Force] Minimum Overall Network Cost: {best_overall_cost:.6f}")
+#analytical_vs_brute()
 
-print(double_star_points)
+
+
