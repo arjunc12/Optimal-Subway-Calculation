@@ -167,12 +167,12 @@ def draw_steps(df, a, colors = ["green", "orange", "purple", "#ff7f0e", "#17becf
     star_3 = suburbs["star_y"].iloc[2]
 
     panel_titles = [
-        "Start w/ downtown and suburbs",
-        "Find a suburb's star point",
-        "Identify all ideal star points",
-        "Try everything up to first star point",
-        "Try up to second star point",
-        "Repeat for all star points"
+        "1. Start with downtown and suburbs",
+        "2. Find a suburb's star point",
+        "3. Identify all ideal star points",
+        "4. Try everything up to first star point",
+        "5. Try up to second star point",
+        "6. Repeat for all star points"
     ]
 
     for i in range(6):
