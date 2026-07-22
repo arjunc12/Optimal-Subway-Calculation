@@ -61,6 +61,7 @@ def compute_c_prime(L, df, a):
 
     return c_prime_sum
 
+# function to find the best main_length using binary search
 def find_best_L_analytical(df, a, epsilon=1e-6):
     # absolute maximum upper bound based on furthest suburb
     max_search_bound = float(df["suburb_y"].max())
@@ -153,6 +154,129 @@ def get_optimal_connection(df, main_length, a): # C*(L)
 
     return actual_connections, total_network_cost
 
+def draw_steps(df, a, colors = ["green", "orange", "purple", "#ff7f0e", "#17becf"]):
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10), sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    suburbs = df.copy()
+    suburbs["star_y"] = [get_star_point_analytical(x, y, a) for x, y in zip(suburbs["suburb_x"], suburbs["suburb_y"])]
+    suburbs = suburbs.sort_values(by="star_y").reset_index(drop=True)
+
+    star_1 = suburbs["star_y"].iloc[0]
+    star_2 = suburbs["star_y"].iloc[1]
+    star_3 = suburbs["star_y"].iloc[2]
+
+    panel_titles = [
+        "Start w/ downtown and suburbs",
+        "Find a suburb's star point",
+        "Identify all ideal star points",
+        "Try everything up to first star point",
+        "Try up to second star point",
+        "Repeat for all star points"
+    ]
+
+    for i in range(6):
+        ax = axes[i]
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.set_xlim(-3, 3)
+        ax.set_ylim(-0.5, main_length + 0.5)
+
+        # downtown at (0, 0)
+        ax.scatter(0, 0, color="black", s=300, zorder=6, label = "Downtown")
+
+        # panel 1: just downtown and suburbs
+        if i == 0:
+            for idx, row in suburbs.iterrows():
+                sub_color = colors[idx % len(colors)]
+                ax.scatter(row["suburb_x"], row["suburb_y"], color=sub_color, s=90, edgecolors="black", zorder=4, label = "Suburb " + str(idx + 1))
+                ax.legend(loc="lower left", fontsize=8, markerscale=0.7, labelspacing=1)
+
+        # panel 2: finding one star point
+        elif i == 1:
+            ax.plot([0, 0], [0, float(suburbs["suburb_y"].max())], color="black", linewidth=3, zorder=2)
+
+            target_idx = len(suburbs)-1
+            target_sub = suburbs.iloc[target_idx]
+            sub_color = colors[target_idx % len(colors)]
+
+            # draws line, suburb, and star
+            ax.scatter(target_sub["suburb_x"], target_sub["suburb_y"], color=sub_color, s=90, edgecolors="black", zorder=4)
+            ax.scatter(0, target_sub["star_y"], color=sub_color, marker="*", s=120, edgecolors="black", zorder=4, label = "Ideal Star Point")
+            ax.plot([target_sub["suburb_x"], 0], [target_sub["suburb_y"], target_sub["star_y"]], color=sub_color, linestyle="-", zorder=3)
+
+            # draws checked lines
+            label = "Trials"
+            for check_y in np.linspace(0, float(suburbs["suburb_y"].max()), 5):
+                if not np.isclose(check_y, target_sub["star_y"]):
+                    ax.plot([target_sub["suburb_x"], 0], [target_sub["suburb_y"], check_y], color=sub_color, linestyle="--", alpha=0.4, zorder=3, label=label)
+                label = None
+            ax.legend(loc="lower left", fontsize=8, markerscale=0.7, labelspacing = 1)   
+
+        # panel 3: show all suburbs with their star points
+        elif i == 2:
+            ax.plot([0, 0], [0, float(suburbs["suburb_y"].max())], color="black", linewidth=3, zorder=2)
+            for idx, row in suburbs.iterrows():
+                sub_color = colors[idx % len(colors)]
+                ax.scatter(row["suburb_x"], row["suburb_y"], color=sub_color, s=90, edgecolors="black", zorder=4)
+                ax.scatter(0, row["star_y"], color=sub_color, marker="*", s=120, edgecolors="black", zorder=4)
+                ax.plot([row["suburb_x"], 0], [row["suburb_y"], row["star_y"]], color=sub_color, linewidth=1.5, alpha=0.6)
+            
+
+        else:
+            # panel 4: up to first star
+            if i == 3:
+                trial_lengths = np.linspace(0.1, star_1, 4)
+            # panel 4: up to second star
+            elif i == 4:
+                trial_lengths = np.linspace(star_1, star_2, 4)
+            # panel 5: up to third star
+            else:
+                trial_lengths = np.linspace(star_2, star_3, 4)
+
+            for trial_L in trial_lengths:
+                ax.plot([0, 0], [0, trial_L], color="black", linewidth=3, alpha=0.4, zorder=2)
+                trial_conns, _ = get_optimal_connection(suburbs, trial_L, a)
+                ax.scatter(0, trial_L, color="black", marker="_", s=150, linewidths=2, alpha=0.6, zorder=3)
+
+                for idx, row in suburbs.iterrows():
+                    sub_color = colors[idx % len(colors)]
+                    conn_y = trial_conns[idx]
+                    line_style = "-" if np.isclose(conn_y, row["star_y"]) else "--"
+                    
+                    ax.plot([row["suburb_x"], 0], [row["suburb_y"], conn_y], 
+                            color=sub_color, linestyle=line_style, linewidth=1.5, alpha=0.25, zorder=3)
+                    
+            final_L = trial_lengths[-1]
+            ax.plot([0, 0], [0, final_L], color="black", linewidth=5, zorder=3)
+            final_conns, _ = get_optimal_connection(suburbs, final_L, a)
+            
+            for idx, row in suburbs.iterrows():
+                sub_color = colors[idx % len(colors)]
+                conn_y = final_conns[idx]
+                
+                ax.scatter(row["suburb_x"], row["suburb_y"], color=sub_color, s=90, edgecolors="black", zorder=4)
+                
+                line_style = "-" if np.isclose(conn_y, row["star_y"]) else "--"
+                
+                ax.plot([row["suburb_x"], 0], [row["suburb_y"], conn_y], color=sub_color, linestyle=line_style, linewidth=2.5, zorder=4)
+                ax.scatter(0, conn_y, color=sub_color, marker="*", s=120, edgecolors="black", zorder=4)
+
+        ax.text(0.05, 0.93, panel_titles[i], transform=ax.transAxes, fontsize=11, weight='bold',
+                bbox=dict(facecolor='#E8DAEF', edgecolor='none', pad=6, alpha=0.9))
+        
+        if i == 4:
+            ax.text(0.6, 0.25, "First suburb is anchored\nto its Star point", transform=ax.transAxes, fontsize=10,
+                    bbox=dict(facecolor='#E8DAEF', edgecolor='none', pad=5, alpha=0.9))
+            
+        fig.text(0.5, 0.02, "Take the best of best of all networks!", transform=fig.transFigure, fontsize=13, weight='bold',
+             color="black", ha="center", bbox=dict(facecolor='#FEDBB5', edgecolor='none', pad=8))
+    plt.suptitle("Visualizing Algorithm Steps", fontsize=14, weight="bold",)
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.08)
+    plt.savefig("optimal_subway_algorithm_generated.png", dpi=300)
+    plt.show()
+
+# function that draws what the network looks like at different main_lengths
 def draw_networks(df, a, best_L, main_length, graph_num = 6, colors = ["#1f77b4", "#9467bd", "#e377c2", "#ff7f0e", "#17becf"]):
     
     plot_candidates = np.linspace(0, main_length, graph_num)
@@ -165,8 +289,7 @@ def draw_networks(df, a, best_L, main_length, graph_num = 6, colors = ["#1f77b4"
         ax.grid(True, linestyle="--", alpha=0.5)
 
         actual_connections, display_cost = get_optimal_connection(df, L, a)
-
-        ax.scatter(0, 0, color="red", s=150, marker="*", zorder=5, label="Downtown")  # downtown
+        ax.scatter(0, 0, color="black", s=300, zorder=5, label="Downtown")  # downtown
         ax.plot([0, 0], [0, L], color="black", linewidth=4, zorder=2, label="Mainline")  # mainline
         ax.plot([0, 0], [L, main_length], color="black", linewidth=2, linestyle=":", alpha=0.3)  # possible mainline
 
@@ -193,15 +316,14 @@ def draw_networks(df, a, best_L, main_length, graph_num = 6, colors = ["#1f77b4"
         ax.set_ylim(-0.5, main_length + 0.5)
 
         if i == 0:
-            ax.legend(loc="upper left", fontsize=8)
+            ax.legend(loc="upper left", fontsize=8, markerscale=0.7,labelspacing=0.8)
 
     plt.suptitle("Visualizing 6 Representative Samples", fontsize=14, weight="bold",)
     plt.tight_layout()
     plt.savefig("network_layout.png", dpi=300)
     plt.show()
 
-# plot graph of cost vs main_length, pointing out minimum cost, and ploting star points
-# HAVEN'T ADDED DOUBLE STAR POINTS DUE TO IT NOT BEING TRACKED
+# function that plots graph of cost vs main_length, pointing out minimum cost, ploting star points and double star points
 def plot_cost_optimization(df, a):
     # gets the star points and sorts them
     df["star_y"] = [
@@ -297,6 +419,7 @@ def plot_cost_optimization(df, a):
     plt.savefig("cost_vs_length_optimization.png", dpi=300)
     plt.show()
 
+# function that returns
 def run_timing_comparison(df_base, a, main_length):
 
     # brute force star points
@@ -350,7 +473,6 @@ def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, 
     suburb_counts = []
     analytical_times = []
     brute_force_times = []
-
     csv_records = []
 
     for num_suburbs in range(min_suburbs, max_suburbs + 1, step): # NUMBER OF SUBURBS ISN"T RANDOM
@@ -421,139 +543,33 @@ def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, 
     plt.savefig("analytical_vs_suburbs.png", dpi=300)
     plt.close()  # closes the figure container to start fresh
 
-    # analytical vs suburbs amount
-    plt.figure(figsize=(10, 6))
-    plt.grid(True, linestyle="--", alpha=0.6)
-    plt.plot(
-        suburb_counts,
-        analytical_times,
-        color="#1f77b4",
-        marker="s",
-        linewidth=2,
-        label="Pure Analytical Path",
-    )
-    plt.title(
-        "Analytical Method: Processing Time vs. Number of Suburbs",
-        fontsize=13,
-        weight="bold",
-    )
-    plt.xlabel("Number of Suburbs ($N$)", fontsize=11)
-    plt.ylabel("Execution Time (Seconds)", fontsize=11)
-    plt.legend(loc="upper left")
-    plt.tight_layout()
-    plt.savefig("analytical_vs_suburbs.png", dpi=300)
-    plt.close()  # closes the figure container to start fresh
-
     # analytical vs brute force
-    fig, ax = plt.subplots(figsize=(8, 8))  # Use square subplots for equal scale mapping
-    ax.grid(True, linestyle="--", alpha=0.6)
+    x = np.arange(len(suburb_counts))  # label locations based on loop steps
+    width = 0.35  # width of each individual bar
 
-    # 1. FORCE EQUAL ASPECT RATIO (1 second X = 1 second Y)
-    ax.set_aspect("equal", adjustable="box")
+    fig, ax = plt.subplots(figsize=(10, 6))
 
-    # 2. MATCH AXIS STEP LIMITS DYNAMICALLY
-    global_min = min(min(brute_force_times), min(analytical_times)) * 0.9
-    global_max = max(max(brute_force_times), max(analytical_times)) * 1.1
-    ax.set_xlim(global_min, global_max)
-    ax.set_ylim(global_min, global_max)
-
-    # 3. ADD A 1:1 PERFORMANCE BASKET REFERENCE LINE
-    ax.plot(
-        [global_min, global_max],
-        [global_min, global_max],
-        color="gray",
-        linestyle="--",
-        alpha=0.7,
-        label="1:1 Equal Speed Line",
+    # Create side-by-side bars
+    ax.bar(
+        x - width / 2, analytical_times, width, label="Analytical", color= "#e377c2"
+    )
+    ax.bar(
+        x + width / 2, brute_force_times, width, label="Brute Force", color= "#17becf"
     )
 
-    # 4. PLOT TIMING CORRELATIONS
-    ax.scatter(
-        brute_force_times,
-        analytical_times,
-        color="#2ca02c",
-        edgecolor="black",
-        s=80,
-        zorder=5,
-        label="Measured Batch Runtimes",
-    )
-    ax.plot(
-        brute_force_times,
-        analytical_times,
-        color="#2ca02c",
-        linestyle=":",
-        alpha=0.5,
-    )
-
-    for (
-        count,
-        x_val,
-        y_val,
-    ) in zip(suburb_counts, brute_force_times, analytical_times):
-        ax.annotate(
-            f" N={count}",
-            xy=(x_val, y_val),
-            xytext=(5, -2),
-            textcoords="offset points",
-            fontsize=9,
-        )
-
-    ax.set_title(
-        "Algorithm Time Correlation: Analytical vs. Brute Force",
-        fontsize=13,
-        weight="bold",
-    )
-    ax.set_xlabel("Brute Force Execution Time (Seconds)", fontsize=11)
-    ax.set_ylabel("Analytical Execution Time (Seconds)", fontsize=11)
-    ax.legend(loc="upper left")
+    # add labels and formatting
+    ax.set_xlabel("Number of Suburbs")
+    ax.set_ylabel("Execution Time (seconds)")
+    ax.set_title("Runtime Comparison: Analytical vs. Brute Force Method")
+    ax.set_xticks(x)
+    ax.set_xticklabels(suburb_counts)
+    ax.legend()
+    ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     plt.tight_layout()
-    plt.savefig("analytical_vs_brute_force_time.png", dpi=300)
-    plt.close(fig)
+    plt.savefig("analytical_vs_brute.png", dpi=300)
+    plt.show()
 
-"""
-    # analytical vs brute force
-    plt.figure(figsize=(10, 6))
-    plt.grid(True, linestyle="--", alpha=0.6)
-    plt.scatter(
-        brute_force_times,
-        analytical_times,
-        color="#2ca02c",
-        edgecolor="black",
-        s=80,
-        zorder=5,
-        label="Measured Batch Runtimes"
-    )
-    plt.plot(
-        brute_force_times,
-        analytical_times,
-        color="#2ca02c",
-        linestyle=":",
-        alpha=0.5
-    )
-
-    for count, x_val, y_val in zip(suburb_counts, brute_force_times, analytical_times):
-        plt.annotate(
-            f" N={count}", 
-            xy=(x_val, y_val), 
-            xytext=(5, -2), 
-            textcoords="offset points", 
-            fontsize=9
-        )
-
-    plt.title(
-        "Algorithm Time Correlation: Analytical vs. Brute Force",
-        fontsize=13,
-        weight="bold",
-    )
-    plt.xlabel("Brute Force Execution Time (Seconds)", fontsize=11)
-    plt.ylabel("Analytical Execution Time (Seconds)", fontsize=11)
-    plt.legend(loc="upper left")
-    
-    plt.tight_layout()
-    plt.savefig("analytical_vs_brute_force_time.png", dpi=300)
-    plt.close()
-    """
 
 def generate_network_tradeoff(df_base, alpha_spectrum = [0.1, 0.3, 0.5, 0.7, 0.9]):
     wiring_costs = []
@@ -714,15 +730,8 @@ df = pd.DataFrame(
         "suburb_y": [2, 5, 3],
     }
 )
-generate_network_tradeoff(df)
-plot_cost_optimization(df, a)
-metrics = run_timing_comparison(df, a, main_length)
-print("Time for brute force method:", metrics["total_bf_time"])
-print("Time for analytical method:", metrics["total_an_time"])
-bf_y, an_y = compare(df, a, main_length)
-print("Brute force star points:", bf_y)
-print("Analytical star points:", an_y)
-print()
+
+draw_steps(df, a)
 
 star_y_list = [get_star_point_analytical(x, y, a) for x, y in zip(df["suburb_x"], df["suburb_y"])]
 
@@ -739,6 +748,18 @@ print(f"\n[Calculus Search] Best Mainline Length: {best_L:.6f}")
 print(f"[Calculus Search] Minimum Overall Network Cost: {min_cost:.6f}")
 
 draw_networks(df, a, best_L, main_length)
+"""
+generate_network_tradeoff(df)
+plot_cost_optimization(df, a)
+metrics = run_timing_comparison(df, a, main_length)
+print("Time for brute force method:", metrics["total_bf_time"])
+print("Time for analytical method:", metrics["total_an_time"])
+bf_y, an_y = compare(df, a, main_length)
+print("Brute force star points:", bf_y)
+print("Analytical star points:", an_y)
+print()
+
+
 
 
 # checking for best network among many many networks
@@ -759,7 +780,8 @@ for L in mainline_candidates:
 
 print(f"\n[Brute Force] Best Mainline Length: {best_L:.6f}")
 print(f"[Brute Force] Minimum Overall Network Cost: {best_overall_cost:.6f}")
-#analytical_vs_brute()
+analytical_vs_brute()
 
 
 
+"""
