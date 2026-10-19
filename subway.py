@@ -273,7 +273,7 @@ def draw_steps(df, a, colors = ["green", "orange", "purple", "#ff7f0e", "#17becf
     plt.suptitle("Visualizing Algorithm Steps", fontsize=14, weight="bold",)
     plt.tight_layout()
     plt.subplots_adjust(bottom=0.08)
-    plt.savefig("optimal_subway_algorithm_generated.png", dpi=300)
+    plt.savefig("optimal_subway_algorithm_generated.pdf", dpi=300)
     plt.show()
 
 # function that draws what the network looks like at different main_lengths
@@ -320,7 +320,7 @@ def draw_networks(df, a, best_L, main_length, graph_num = 6, colors = ["#1f77b4"
 
     plt.suptitle("Visualizing 6 Representative Samples", fontsize=14, weight="bold",)
     plt.tight_layout()
-    plt.savefig("network_layout.png", dpi=300)
+    plt.savefig("network_layout.pdf", dpi=300)
     plt.show()
 
 # function that plots graph of cost vs main_length, pointing out minimum cost, ploting star points and double star points
@@ -416,7 +416,7 @@ def plot_cost_optimization(df, a):
     plt.legend(loc="upper right", framealpha=0.9)
 
     plt.tight_layout()
-    plt.savefig("cost_vs_length_optimization.png", dpi=300)
+    plt.savefig("cost_vs_length_optimization.pdf", dpi=300)
     plt.show()
 
 # function that returns
@@ -540,7 +540,7 @@ def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, 
     plt.ylabel("Execution Time (Seconds)", fontsize=11)
     plt.legend(loc="upper left")
     plt.tight_layout()
-    plt.savefig("analytical_vs_suburbs.png", dpi=300)
+    plt.savefig("analytical_vs_suburbs.pdf", dpi=300)
     plt.close()  # closes the figure container to start fresh
 
     # analytical vs brute force
@@ -567,7 +567,7 @@ def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, 
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
     plt.tight_layout()
-    plt.savefig("analytical_vs_brute.png", dpi=300)
+    plt.savefig("analytical_vs_brute.pdf", dpi=300)
     plt.show()
 
 
@@ -657,7 +657,7 @@ def generate_network_tradeoff(df_base, alpha_spectrum = [0.1, 0.3, 0.5, 0.7, 0.9
         "Total Conduction Delay (Cumulative Travel Path Time)", fontsize=11
     )
 
-    plt.savefig("pareto_frontier.png", dpi=300, bbox_inches="tight")
+    plt.savefig("pareto_frontier.pdf", dpi=300, bbox_inches="tight")
     plt.show()
     plt.close(fig_main)
 
@@ -748,7 +748,8 @@ print(f"\n[Calculus Search] Best Mainline Length: {best_L:.6f}")
 print(f"[Calculus Search] Minimum Overall Network Cost: {min_cost:.6f}")
 
 draw_networks(df, a, best_L, main_length)
-"""
+
+
 generate_network_tradeoff(df)
 plot_cost_optimization(df, a)
 metrics = run_timing_comparison(df, a, main_length)
@@ -761,7 +762,7 @@ print()
 
 
 
-
+"""
 # checking for best network among many many networks
 mainline_candidates = np.linspace(0, main_length, main_length * 100)
 
