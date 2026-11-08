@@ -551,10 +551,10 @@ def analytical_vs_brute(min_suburbs = 5, max_suburbs = 100, step = 30, a = 0.5, 
 
     # Create side-by-side bars
     ax.bar(
-        x - width / 2, analytical_times, width, label="Analytical", color= "#e377c2"
+        x - width / 2, analytical_times, width, label="Analytical", color= "#ff7f0e"
     )
     ax.bar(
-        x + width / 2, brute_force_times, width, label="Brute Force", color= "#17becf"
+        x + width / 2, brute_force_times, width, label="Brute Force", color= "#1f77b4"
     )
 
     # add labels and formatting
@@ -712,12 +712,224 @@ def generate_network_tradeoff(df_base, alpha_spectrum = [0.1, 0.3, 0.5, 0.7, 0.9
             bbox=dict(facecolor="white", alpha=0.5, boxstyle="round,pad=0.3"),
         )
 
-        file_name = f"network_alpha_{net['alpha']:.1f}.png"
+        file_name = f"network_alpha_{net['alpha']:.1f}.pdf"
         plt.savefig(file_name, dpi=300, bbox_inches="tight")
         plt.show()
         plt.close(fig_sub)
 
+def plot_alpha_cost_spectrum(df_base, alpha_spectrum=[0.2, 0.4, 0.6, 0.8, 1.0]):
+    plt.figure(figsize=(12, 7))
+    plt.grid(True, linestyle="--", alpha=0.5, zorder=1)
+    
+    palette = ["#1f77b4", "#2ca02c", "#9467bd", "#e377c2", "#bcbd22"]
+    
+    min_points_x = []
+    min_points_y = []
 
+    for idx, a in enumerate(alpha_spectrum):
+        curve_color = palette[idx % len(palette)]
+        
+        # get star points
+        df = df_base.copy()
+        df["star_y"] = [get_star_point_analytical(x, y, a) for x, y in zip(df["suburb_x"], df["suburb_y"])]
+        df = df.sort_values(by="star_y").reset_index(drop=True)
+        
+        # get highest star point
+        max_plot_length = float(df["star_y"].max())
+        
+        L_spectrum = np.linspace(0, max_plot_length, 800)
+        costs = [get_optimal_connection(df, L, a)[1] for L in L_spectrum]
+        
+        # plot curve
+        plt.plot(
+            L_spectrum, 
+            costs, 
+            color=curve_color, 
+            linewidth=2.2, 
+            label=rf"$\alpha = {a:.1f}$", 
+            zorder=2
+        )
+        
+        # 4. Highlight critical transition points (where derivative changes at star points)
+        star_costs = []
+        for f_star in df["star_y"]:
+            cost_at_star = get_optimal_connection(df, f_star, a)[1]
+            star_costs.append(cost_at_star)
+            
+        plt.scatter(
+            df["star_y"], 
+            star_costs, 
+            color=curve_color, 
+            s=25, 
+            zorder=4, 
+            edgecolors="none",
+            alpha=0.9
+        )
+        
+        # 5. Find global minimum cost point for this curve
+        best_L, min_cost, _ = find_best_L_analytical(df, a)
+        min_points_x.append(best_L)
+        min_points_y.append(min_cost)
+
+    # Plot all minimum markers together so they share a single legend entry
+    plt.scatter(
+        min_points_x, 
+        min_points_y, 
+        color="blue", 
+        marker="x", 
+        s=75, 
+        linewidths=2, 
+        zorder=5, 
+        label="Minimum Cost"
+    )
+
+    # Polish labels, bounds, and layout
+    plt.title("Cost of Optimized System with Length $L$ Across Weighting Factors ($\\alpha$)", fontsize=13, weight="bold", pad=12)
+    plt.xlabel("Length of $L$", fontsize=11)
+    plt.ylabel("Cost of Optimized System with Length $L$", fontsize=11)
+    
+    # Adjust legend position and styling
+    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, fontsize=10)
+    plt.tight_layout()
+    
+    plt.savefig("alpha_cost_spectrum.pdf", dpi=300, bbox_inches="tight")
+    plt.show()
+
+def generate_binary_search(df, a):
+    # 0. Preprocess data & calculate star points
+    suburbs = df.copy()
+    suburbs['star_y'] = [get_star_point_analytical(x, y, a) for x, y in zip(suburbs["suburb_x"], suburbs["suburb_y"])]
+    suburbs = suburbs.sort_values(by="star_y").reset_index(drop=True)
+    
+    colors = ["#1f77b4", "#9467bd", "#e377c2", "#ff7f0e", "#17becf"]
+    
+    LO_init = float(suburbs['star_y'].iloc[0])  # 1st Star Point
+    HI_init = float(suburbs['star_y'].iloc[1])  # 2nd Star Point
+    
+    # Track interval states across 3 iterations
+    iterations_state = []
+    LO, HI = LO_init, HI_init
+    
+    for it in range(3):
+        MID = (LO + HI) / 2.0
+        deriv_MID = compute_c_prime(MID, suburbs, a)
+        
+        iterations_state.append({
+            "iter": it + 1,
+            "LO": LO,
+            "HI": HI,
+            "MID": MID,
+            "deriv_MID": deriv_MID
+        })
+        
+        if deriv_MID < 0:
+            LO = MID
+        else:
+            HI = MID
+
+    fig, axes = plt.subplots(3, 2, figsize=(13, 14))
+    
+    # derivative curve
+    L_dense = np.linspace(LO_init, HI_init, 400)
+    c_prime_dense = [compute_c_prime(L, suburbs, a) for L in L_dense]
+    
+    max_y_val = max(suburbs['suburb_y'].max(), suburbs['star_y'].max())
+    max_x_val = float(suburbs['suburb_x'].abs().max())
+    x_margin = max_x_val + 1.2
+    y_margin = 0.8
+
+    for idx, state in enumerate(iterations_state):
+        it = state["iter"]
+        c_LO, c_HI, c_MID = state["LO"], state["HI"], state["MID"]
+        deriv_val = state["deriv_MID"]
+
+        #network
+        ax_net = axes[idx, 0]
+        ax_net.set_aspect("equal", adjustable="datalim")
+        ax_net.set_xlim(-x_margin, x_margin)
+        ax_net.set_ylim(-y_margin, max_y_val + y_margin)
+        ax_net.axis("off")
+        
+        
+        ax_net.scatter(0, 0, color="black", s=250, zorder=7)
+        ax_net.text(0, -0.4, "Downtown ($L=0$)", fontsize=8.5, weight="bold", ha="center")
+        ax_net.plot([0, 0], [0, max_y_val], color="black", linewidth=1.5, linestyle=":", alpha=0.35, zorder=1)
+        
+        
+        ax_net.plot([0, 0], [c_LO, c_HI], color="purple", linewidth=5, alpha=0.85, zorder=2)
+        ax_net.axhline(c_LO, color="crimson", linestyle="--", linewidth=1.0, alpha=0.7)
+        ax_net.axhline(c_HI, color="darkgreen", linestyle="--", linewidth=1.0, alpha=0.7)
+        
+    
+        ax_net.scatter(0, c_MID, color="gold", marker="*", s=220, edgecolors="black", zorder=8)
+        ax_net.text(0.3, c_MID, f"$L_{{MID}} = {c_MID:.2f}$", fontsize=8.5, weight="bold", color="darkorange", va="center")
+
+ 
+        for s_idx, row in suburbs.iterrows():
+            sub_color = colors[s_idx % len(colors)]
+            ax_net.scatter(row["suburb_x"], row["suburb_y"], color=sub_color, s=150, edgecolors="black", zorder=6)
+            x_offset = 0.22 if row["suburb_x"] >= 0 else -0.22
+            ax_net.text(row["suburb_x"] + x_offset, row["suburb_y"], f"$S_{{{s_idx+1}}}$", 
+                        fontsize=9, weight="bold", ha="left" if row["suburb_x"] >= 0 else "right", va="center")
+            ax_net.scatter(0, row["star_y"], color=sub_color, marker="*", s=140, edgecolors="black", zorder=6)
+            
+            conn_y = min(row["star_y"], c_MID)
+            line_style = "-" if np.isclose(conn_y, row["star_y"]) else "--"
+            ax_net.plot([row["suburb_x"], 0], [row["suburb_y"], conn_y], color=sub_color, linestyle=line_style, linewidth=1.2, zorder=3)
+        
+        ax_net.text(-0.3, (c_LO + c_HI) / 2, f"$[{c_LO:.2f}, {c_HI:.2f}]$", 
+                    fontsize=8.5, weight="bold", color="purple", ha="right", va="center")
+        ax_net.set_title(f"Iteration {it}: Spatial Network Layout", fontsize=10, weight="bold")
+
+        
+        ax_der = axes[idx, 1]
+        ax_der.grid(True, linestyle="--", alpha=0.5)
+        
+        ax_der.plot(L_dense, c_prime_dense, color="#1f77b4", linewidth=2.0, label=r"$\mathcal{C}'(L)$", zorder=3)
+        ax_der.axhline(0, color="gray", linestyle=":", linewidth=1.2, zorder=1)
+        
+        ax_der.axvline(c_LO, color="crimson", linestyle="--", linewidth=1.4, label=f"$L_{{LO}} = {c_LO:.3f}$")
+        ax_der.axvline(c_HI, color="darkgreen", linestyle="--", linewidth=1.4, label=f"$L_{{HI}} = {c_HI:.3f}$")
+        ax_der.axvline(c_MID, color="gold", linestyle="-", linewidth=1.8, label=f"$L_{{MID}} = {c_MID:.3f}$")
+        
+        ax_der.scatter(c_MID, deriv_val, color="gold", edgecolor="black", s=90, zorder=5)
+        
+        # red shading
+        # shade pre-exisitng right region
+        if c_LO > LO_init:
+            ax_der.axvspan(LO_init, c_LO, color="red", alpha=0.15, label="Discarded Region")
+            
+        # shade pre-exisitng left region
+        if c_HI < HI_init:
+            ax_der.axvspan(c_HI, HI_init, color="red", alpha=0.15)
+            
+        # shade new region
+        if deriv_val < 0:
+            ax_der.axvspan(c_LO, c_MID, color="red", alpha=0.15, label="Discarded Region" if c_LO == LO_init else "")
+            decision_msg = r"$\mathcal{C}'(L_{MID}) < 0 \rightarrow$ Keep Right"
+        else:
+            ax_der.axvspan(c_MID, c_HI, color="red", alpha=0.15, label="Discarded Region" if c_HI == HI_init else "")
+            decision_msg = r"$\mathcal{C}'(L_{MID}) \geq 0 \rightarrow$ Keep Left"
+     
+        handles, labels = ax_der.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax_der.legend(by_label.values(), by_label.keys(), loc="lower right", fontsize=7.5, framealpha=0.85)
+            
+        ax_der.text(0.03, 0.78, decision_msg, transform=ax_der.transAxes, fontsize=8.5, weight="bold",
+                    bbox=dict(facecolor="#E8DAEF", edgecolor="none", pad=3, alpha=0.9))
+        
+        ax_der.set_title(f"Iteration {it}: Derivative Evaluation $\mathcal{{C}}'(L)$", fontsize=10, weight="bold")
+        ax_der.set_ylabel(r"$\mathcal{C}'(L)$", fontsize=9)
+        
+        if idx == 2:
+            ax_der.set_xlabel("Mainline Length ($L$)", fontsize=9)
+
+    fig.suptitle("Binary Search Progression on Interval 2: Spatial Network vs. Cost Derivative $\mathcal{C}'(L)$", fontsize=13, weight="bold")
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.93)
+    
+    plt.savefig("binary_search.pdf", dpi=300, bbox_inches="tight")
+    plt.close()
 
 a = 0.5
 main_length = 5
@@ -730,6 +942,10 @@ df = pd.DataFrame(
         "suburb_y": [2, 5, 3],
     }
 )
+
+generate_binary_search(df, a)
+"""
+plot_alpha_cost_spectrum(df)
 
 draw_steps(df, a)
 
@@ -762,7 +978,6 @@ print()
 
 
 
-"""
 # checking for best network among many many networks
 mainline_candidates = np.linspace(0, main_length, main_length * 100)
 
@@ -781,8 +996,6 @@ for L in mainline_candidates:
 
 print(f"\n[Brute Force] Best Mainline Length: {best_L:.6f}")
 print(f"[Brute Force] Minimum Overall Network Cost: {best_overall_cost:.6f}")
+
 analytical_vs_brute()
-
-
-
 """
